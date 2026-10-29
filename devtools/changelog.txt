@@ -1,0 +1,16 @@
+Changelog for MIS4000 University Chat System UI components:
+
+2026-10-28: Initial setup
+- Created src/ui directory for React.js UI components
+- Created Button.css with universal styling (black to yellow hover effect)
+- Created Button.jsx with feature-rich button component
+- Created index.js barrel export file
+
+Features:
+- Bootstrap-like button component
+- Primary variant: black (#1a1a1a) to yellow (#ffc107) on hover
+- Outline and ghost variants available
+- Size variants: sm, md, lg
+- Block width, loading state, disabled states
+- Full accessibility (focus-visible, sr-only text)
+- CSS transition animation (0.2s ease-in-out)
