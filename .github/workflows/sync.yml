@@ -56,14 +56,14 @@ jobs:
           SYNC_FILES: |
             # Cline rules
             .cline/rules/*
+            .cline/rules/**
           
             # GitHub Actions workflows
             .github/workflows/sync.yml
             .github/workflows/sync.yaml
           
             # Other files
-            .github/copilot-instructions.md
-            README.md
+            
         shell: bash
         run: |
           set -euo pipefail
@@ -194,3 +194,26 @@ jobs:
           git -C target push origin "HEAD:refs/heads/${TARGET_BRANCH}"
 
           echo "Synchronization completed successfully."
+
+          echo "========== SYNC DIAGNOSTICS =========="
+
+          echo "Event: $EVENT_NAME"
+          echo "Source commit: $AFTER"
+          
+          echo ""
+          echo "Files tracked in .cline:"
+          git ls-tree -r --name-only "$AFTER" -- .cline/
+          
+          echo ""
+          echo "README status:"
+          if git cat-file -e "$AFTER:README.md" 2>/dev/null; then
+          echo "README.md exists and is tracked."
+          else
+          echo "README.md is NOT tracked."
+          fi
+          
+          echo ""
+          echo "Files discovered for synchronization:"
+          printf '%s\n' "${CHANGED_FILES[@]}"
+          
+          echo "======================================"
