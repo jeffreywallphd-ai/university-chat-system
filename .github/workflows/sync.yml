@@ -67,9 +67,10 @@ jobs:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
           SYNC_FILES: |
-            .cline/rules/*
-            .cline/*
-            .cline/rules/**
+            #.cline/rules/*
+            #.cline/*
+            #.cline/rules/**
+            .cline/rules/ALWAYS.md
             .github/copilot-instructions.md
             .github/workflows/sync.yml
             .github/workflows/sync.yaml
