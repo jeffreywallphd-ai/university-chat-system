@@ -1,0 +1,97 @@
+
+name: Bidirectional Selected File Sync
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    # Prevent synchronization commits from triggering another sync.
+    if: >-
+      github.event.deleted != true &&
+      !contains(github.event.head_commit.message, '[repo-sync]')
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Check out the source repository.
+      - name: Checkout source repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # 2. Clone the destination repository.
+      - name: Clone destination repository
+        env:
+          TOKEN: ${{ secrets.SYNC_TOKEN }}
+          TARGET_REPO: ${{ secrets.SYNC_REPO }}
+        run: |
+          set -euo pipefail
+
+          git clone \
+            "https://x-access-token:${TOKEN}@github.com/${TARGET_REPO}.git" \
+            target
+
+      # 3. Synchronize only explicitly approved files.
+      - name: Copy approved changed files
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+
+          SYNC_FILES: |
+            .cline/rules/*
+            .github/copilot-instructions.md
+            README.md
+
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Get changed files, or all tracked files on a manual run.
+          if [[ -n "$BEFORE" && ! "$BEFORE" =~ ^0+$ ]]; then
+            mapfile -d '' -t CHANGED_FILES < <(
+              git diff --name-only -z \
+                --diff-filter=ACMRT "$BEFORE" "$AFTER"
+            )
+          else
+            mapfile -d '' -t CHANGED_FILES < <(
+              git ls-files -z
+            )
+          fi
+
+          # Read approved paths and glob patterns.
+          mapfile -t PATTERNS <<< "$SYNC_FILES"
+
+          for source_file in "${CHANGED_FILES[@]}"; do
+            [[ -z "$source_file" ]] && continue
+
+            # Match against the approved file patterns.
+            approved=false
+
+            for pattern in "${PATTERNS[@]}"; do
+              [[ -z "$pattern" || "$pattern" == \#* ]] && continue
+
+              if [[ "$source_file" == $pattern ]]; then
+                approved=true
+                break
+              fi
+            done
+
+            [[ "$approved" == false ]] && continue
+
+            # Skip missing files, including deletions.
+            [[ ! -f "$source_file" ]] && continue
+
+            mkdir -p "target/$(dirname "$source_file")"
+            cp -p -- "$source_file" "target/$source_file"
+            git -C target add -- "$source_file"
+
+            echo "Synchronized: $source_file"
+          done
