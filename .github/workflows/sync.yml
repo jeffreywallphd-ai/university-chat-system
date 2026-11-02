@@ -13,6 +13,7 @@ permissions:
 jobs:
   sync:
     # Prevent synchronization commits from triggering another sync.
+    # i.e. infinite loops
     if: >-
       github.event.deleted != true &&
       !contains(github.event.head_commit.message, '[repo-sync]')
@@ -48,6 +49,10 @@ jobs:
           SYNC_FILES: |
             .cline/rules/*
             .github/copilot-instructions.md
+
+             # GitHub Actions workflow
+            .github/workflows/sync.yaml
+            
             README.md
 
         shell: bash
