@@ -11,8 +11,7 @@ permissions:
 
 jobs:
   sync:
-    # Manual runs are always allowed. Pushes made by this workflow are skipped
-    # to prevent the two repositories from triggering each other indefinitely.
+    # Always allow manual runs. On push, ignore sync-generated commits and branch deletions.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (
@@ -23,261 +22,182 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Check out the source repository at the selected commit.
+      # 1. Check out the source repository with history so push diffs can include deletions.
       - name: Checkout source repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      # 2. Clone the destination repository.
+      # 2. Clone the destination repository using the PAT stored in SYNC_TOKEN.
       - name: Clone destination repository
         env:
           TOKEN: ${{ secrets.SYNC_TOKEN }}
           TARGET_REPO: ${{ secrets.SYNC_REPO }}
+        shell: bash
         run: |
           set -euo pipefail
 
-          if [[ -z "${TOKEN}" || -z "${TARGET_REPO}" ]]; then
-            echo "SYNC_TOKEN or SYNC_REPO secret is missing."
+          if [[ -z "${TOKEN:-}" ]]; then
+            echo "ERROR: repository secret SYNC_TOKEN is missing."
             exit 1
           fi
 
-          git clone \
+          if [[ -z "${TARGET_REPO:-}" ]]; then
+            echo "ERROR: repository secret SYNC_REPO is missing."
+            exit 1
+          fi
+
+          if [[ ! "$TARGET_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "ERROR: SYNC_REPO must be in owner/repository format."
+            exit 1
+          fi
+
+          git clone --quiet \
             "https://x-access-token:${TOKEN}@github.com/${TARGET_REPO}.git" \
             target
 
-      # 3. Find only changed files that match the allowlist and print diagnostics.
-      - name: Diagnose and copy approved changed files
+          git -C target config user.name "github-actions[bot]"
+          git -C target config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # 3. Copy additions/changes and propagate allowlisted deletions.
+      - name: Synchronize approved files and deletions
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before || '' }}
+          BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
           SYNC_FILES: |
-            # Cline rules: * matches files directly inside this directory.
-            # Use .cline/rules/** instead if you also want nested subdirectories.
             .cline/rules/*
             .cline/*
             .cline/rules/**
-
-            # GitHub instructions and synchronization workflow.
             .github/copilot-instructions.md
             .github/workflows/sync.yml
             .github/workflows/sync.yaml
-
-            # Other selected files.
             README.md
         shell: bash
         run: |
           set -euo pipefail
 
-          # Build a NUL-delimited list of approved source paths. Python is used
-          # for path-segment-aware glob matching: * does not cross '/', while ** does.
-          python3 - <<'PY' > "$RUNNER_TEMP/approved-files.nul"
-          import fnmatch
-          import functools
-          import os
-          import subprocess
-          import sys
+          echo "========== SYNC DIAGNOSTICS =========="
+          echo "Event: ${EVENT_NAME}"
+          echo "Source commit: ${AFTER}"
 
-          event_name = os.environ.get("EVENT_NAME", "")
-          before = os.environ.get("BEFORE", "")
-          after = os.environ["AFTER"]
-          raw_patterns = os.environ.get("SYNC_FILES", "")
+          # A push compares the before/after commits. --no-renames deliberately
+          # reports a rename as a deletion of the old path plus an addition of
+          # the new path, allowing both sides of the rename to be synchronized.
+          # Manual runs (and the first push to a branch) enumerate tracked files.
+          if [[ "$EVENT_NAME" == "push" && -n "${BEFORE:-}" && ! "$BEFORE" =~ ^0+$ ]]; then
+            MODE="push/changed paths (including deletions and both sides of renames)"
+            mapfile -d '' -t CANDIDATE_FILES < <(
+              git diff --no-renames --name-only -z --diff-filter=ACMRTD "$BEFORE" "$AFTER"
+            )
+          else
+            MODE="manual/all tracked files (no deletion propagation)"
+            mapfile -d '' -t CANDIDATE_FILES < <(git ls-files -z)
+          fi
 
-          def git_bytes(*args):
-              result = subprocess.run(
-                  ["git", *args],
-                  check=True,
-                  stdout=subprocess.PIPE,
-                  stderr=subprocess.PIPE,
-              )
-              return result.stdout
+          mapfile -d '' -t TRACKED_FILES < <(git ls-files -z)
+          echo "Mode: ${MODE}"
+          echo "Tracked files in source checkout: ${#TRACKED_FILES[@]}"
+          echo "Configured allowlist patterns:"
 
-          def split_nul(data):
-              return [os.fsdecode(item) for item in data.split(b"\0") if item]
-
-          # A manual run synchronizes every tracked source file that matches
-          # the allowlist. A push run considers only files changed in that push.
-          if event_name == "workflow_dispatch" or not before or set(before) == {"0"}:
-              candidates = split_nul(
-                  git_bytes("ls-tree", "-r", "-z", "--name-only", after)
-              )
-              mode = "manual/full allowlist scan"
-          else:
-              candidates = split_nul(
-                  git_bytes(
-                      "diff", "--name-only", "-z", "--diff-filter=ACMRT",
-                      before, after,
-                  )
-              )
-              mode = "push/changed files only"
-
-          all_source_files = split_nul(
-              git_bytes("ls-tree", "-r", "-z", "--name-only", after)
-          )
-
-          patterns = []
-          for raw_line in raw_patterns.splitlines():
-              pattern = raw_line.strip()
-              if not pattern or pattern.startswith("#"):
-                  continue
-              if pattern.startswith("/") or any(
-                  part in (".", "..") for part in pattern.split("/")
-              ):
-                  raise SystemExit(f"Unsafe SYNC_FILES pattern: {pattern}")
-              patterns.append(pattern)
-
-          def matches(path, pattern):
-              path_parts = tuple(path.split("/"))
-              pattern_parts = tuple(pattern.split("/"))
-
-              @functools.lru_cache(maxsize=None)
-              def match_parts(path_index, pattern_index):
-                  if pattern_index == len(pattern_parts):
-                      return path_index == len(path_parts)
-
-                  part_pattern = pattern_parts[pattern_index]
-                  if part_pattern == "**":
-                      # ** matches zero or more complete path components.
-                      return (
-                          match_parts(path_index, pattern_index + 1)
-                          or (
-                              path_index < len(path_parts)
-                              and match_parts(path_index + 1, pattern_index)
-                          )
-                      )
-
-                  return (
-                      path_index < len(path_parts)
-                      and fnmatch.fnmatchcase(path_parts[path_index], part_pattern)
-                      and match_parts(path_index + 1, pattern_index + 1)
-                  )
-
-              return match_parts(0, 0)
-
-          print("========== SYNC DIAGNOSTICS ==========", file=sys.stderr)
-          print(f"Event: {event_name}", file=sys.stderr)
-          print(f"Mode: {mode}", file=sys.stderr)
-          print(f"Source commit: {after}", file=sys.stderr)
-          print(f"Tracked files in source commit: {len(all_source_files)}", file=sys.stderr)
-          print("Configured allowlist patterns:", file=sys.stderr)
-          for pattern in patterns:
-              print(f"  {pattern}", file=sys.stderr)
-
-          rules_files = [
-              path for path in all_source_files
-              if path.startswith(".cline/rules/")
-          ]
-          print("Tracked files under .cline/rules:", file=sys.stderr)
-          if rules_files:
-              for path in rules_files:
-                  print(f"  {path}", file=sys.stderr)
-          else:
-              print("  (none found in this commit)", file=sys.stderr)
-
-          print("README.md status:", file=sys.stderr)
-          print(
-              "  tracked in source commit"
-              if "README.md" in all_source_files
-              else "  NOT tracked in source commit",
-              file=sys.stderr,
-          )
-
-          print(f"Candidate files examined: {len(candidates)}", file=sys.stderr)
-          print("Candidate files:", file=sys.stderr)
-          for path in candidates:
-              print(f"  {path}", file=sys.stderr)
-
-          approved = []
-          for path in candidates:
-              # Git paths are repository-relative. Reject unexpected unsafe paths.
-              if path.startswith("/") or any(
-                  part in (".", "..") for part in path.split("/")
-              ):
-                  print(f"Skipping unsafe source path: {path}", file=sys.stderr)
-                  continue
-
-              matching_patterns = [p for p in patterns if matches(path, p)]
-              if matching_patterns:
-                  approved.append(path)
-                  print(
-                      f"ALLOW: {path} (matched: {', '.join(matching_patterns)})",
-                      file=sys.stderr,
-                  )
-
-          # Preserve order while removing duplicate paths.
-          approved = list(dict.fromkeys(approved))
-          print(f"Approved source files found: {len(approved)}", file=sys.stderr)
-          if not approved:
-              print("No source files matched the allowlist.", file=sys.stderr)
-
-          for path in approved:
-              sys.stdout.buffer.write(os.fsencode(path) + b"\0")
-
-          print("======================================", file=sys.stderr)
-          PY
-
-          mapfile -d '' -t APPROVED_FILES < "$RUNNER_TEMP/approved-files.nul"
-
-          echo "Files approved for copying: ${#APPROVED_FILES[@]}"
-
-          for source_file in "${APPROVED_FILES[@]}"; do
-            if [[ ! -f "$source_file" ]]; then
-              echo "WARNING: Source file is not present in the checkout: $source_file"
-              continue
-            fi
-
-            if [[ -d "target/$source_file" && ! -L "target/$source_file" ]]; then
-              echo "ERROR: Destination path is a directory, but source is a file: $source_file"
-              exit 1
-            fi
-
-            if [[ -f "target/$source_file" ]] && cmp -s -- "$source_file" "target/$source_file"; then
-              echo "Already identical in destination: $source_file"
-              continue
-            fi
-
-            if [[ -e "target/$source_file" || -L "target/$source_file" ]]; then
-              echo "Updating existing destination file: $source_file"
-            else
-              echo "Creating missing destination file: $source_file"
-            fi
-
-            mkdir -p "target/$(dirname "$source_file")"
-            cp -p -- "$source_file" "target/$source_file"
-            git -C target add -- "$source_file"
-
-            echo "Staged for synchronization: $source_file"
+          mapfile -t PATTERNS <<< "$SYNC_FILES"
+          for pattern in "${PATTERNS[@]}"; do
+            [[ -z "$pattern" || "$pattern" =~ ^[[:space:]]*# ]] && continue
+            echo "  ${pattern}"
           done
 
-          echo "Staged destination changes:"
-          git -C target diff --cached --name-status
+          echo "Candidate paths examined: ${#CANDIDATE_FILES[@]}"
+          if (( ${#CANDIDATE_FILES[@]} > 0 )); then
+            printf '  %s\n' "${CANDIDATE_FILES[@]}"
+          fi
 
-      # 4. Commit and push changes to the destination repository's default branch.
-      - name: Commit and push synchronized files
+          COPY_COUNT=0
+          DELETE_COUNT=0
+          UNCHANGED_DELETE_COUNT=0
+
+          for source_file in "${CANDIDATE_FILES[@]}"; do
+            [[ -z "$source_file" ]] && continue
+
+            # Match repository-root-relative paths against the allowlist.
+            # These are Bash conditional patterns; '*' may match '/' as well.
+            approved=false
+            matched_pattern=""
+
+            for pattern in "${PATTERNS[@]}"; do
+              [[ -z "$pattern" || "$pattern" =~ ^[[:space:]]*# ]] && continue
+
+              if [[ "$source_file" == $pattern ]]; then
+                approved=true
+                matched_pattern="$pattern"
+                break
+              fi
+            done
+
+            if [[ "$approved" == false ]]; then
+              echo "DENY: ${source_file} (not in allowlist)"
+              continue
+            fi
+
+            destination_file="target/${source_file}"
+
+            if [[ -f "$source_file" || -L "$source_file" ]]; then
+              mkdir -p "target/$(dirname "$source_file")"
+
+              # Do not follow a pre-existing destination symlink when replacing
+              # a selected file. Preserve source symlinks as symlinks in Git.
+              if [[ -L "$destination_file" ]]; then
+                rm -f -- "$destination_file"
+              elif [[ -e "$destination_file" && ! -f "$destination_file" ]]; then
+                echo "ERROR: destination path is not a regular file: ${source_file}"
+                exit 1
+              fi
+
+              cp -pP -- "$source_file" "$destination_file"
+              git -C target add -A -- ":(literal)${source_file}"
+              COPY_COUNT=$((COPY_COUNT + 1))
+              echo "COPY: ${source_file} (matched: ${matched_pattern})"
+            else
+              # The source path is absent: this is a deletion on a push.
+              # Manual runs enumerate existing files only and do not enter here.
+              if [[ -f "$destination_file" || -L "$destination_file" ]]; then
+                rm -f -- "$destination_file"
+                git -C target add -A -- ":(literal)${source_file}"
+                DELETE_COUNT=$((DELETE_COUNT + 1))
+                echo "DELETE: ${source_file} (matched: ${matched_pattern})"
+              elif [[ -e "$destination_file" ]]; then
+                echo "ERROR: destination path is a directory, not a file: ${source_file}"
+                exit 1
+              else
+                UNCHANGED_DELETE_COUNT=$((UNCHANGED_DELETE_COUNT + 1))
+                echo "DELETE SKIP: ${source_file} is already absent from destination"
+              fi
+            fi
+          done
+
+          echo "--------------------------------------"
+          echo "Approved files copied: ${COPY_COUNT}"
+          echo "Approved files deleted: ${DELETE_COUNT}"
+          echo "Already absent at destination: ${UNCHANGED_DELETE_COUNT}"
+          echo "======================================"
+
+      # 4. Commit and push only if the destination actually changed.
+      - name: Commit and push synchronized changes
+        shell: bash
         run: |
           set -euo pipefail
 
-          git -C target config user.name "github-actions[bot]"
-          git -C target config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
-
-          if git -C target diff --cached --quiet; then
+          if [[ -z "$(git -C target status --porcelain)" ]]; then
             echo "No approved file changes to synchronize."
-            echo "The destination files may already be identical to the source."
             exit 0
           fi
 
-          TARGET_BRANCH="$(git -C target branch --show-current)"
-          if [[ -z "$TARGET_BRANCH" ]]; then
-            echo "Could not determine the destination repository's checked-out branch."
+          DESTINATION_BRANCH="$(git -C target branch --show-current)"
+          if [[ -z "$DESTINATION_BRANCH" ]]; then
+            echo "ERROR: could not determine the destination repository's checked-out branch."
             exit 1
           fi
 
-          git -C target commit -m "[repo-sync] Update approved files"
-          git -C target push origin "HEAD:refs/heads/${TARGET_BRANCH}"
-
-          echo "Synchronization completed successfully."
-          echo "Destination repository: ${{ secrets.SYNC_REPO }}"
-          echo "Destination branch: ${TARGET_BRANCH}"
+          git -C target status --short
+          git -C target commit -m "[repo-sync] Update approved files from ${GITHUB_REPOSITORY}@${GITHUB_SHA:0:7}"
+          git -C target push origin "HEAD:${DESTINATION_BRANCH}"
