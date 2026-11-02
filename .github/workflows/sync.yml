@@ -56,11 +56,12 @@ jobs:
           SYNC_FILES: |
             # Cline rules
             .cline/rules/*
-
-            # GitHub Actions workflow (keep this file synchronized too)
+          
+            # GitHub Actions workflows
+            .github/workflows/sync.yml
             .github/workflows/sync.yaml
-
-            # Other selected files
+          
+            # Other files
             .github/copilot-instructions.md
             README.md
         shell: bash
@@ -70,11 +71,26 @@ jobs:
           # On a push, get added/copied/modified/renamed/type-changed files.
           # On a manual run (or the first push), inspect all tracked files.
           if [[ "$EVENT_NAME" == "workflow_dispatch" || -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
-            mapfile -d '' -t CHANGED_FILES < <(git ls-files -z)
+
+            echo "Manual synchronization: inspecting all tracked files."
+          
+            mapfile -d '' -t CHANGED_FILES < <(
+              git ls-tree -r -z --name-only "$AFTER"
+            )
+          
+            echo "Tracked files under .cline/rules:"
+            git ls-tree -r --name-only "$AFTER" -- .cline/rules
+          
+            echo "Total tracked files found: ${#CHANGED_FILES[@]}"
+          
           else
+          
+            echo "Push synchronization: inspecting changed files."
+          
             mapfile -d '' -t CHANGED_FILES < <(
               git diff --name-only -z --diff-filter=ACMRT "$BEFORE" "$AFTER"
             )
+          
           fi
 
           # Convert path globs to regular expressions:
