@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111111">
+<title>Michigan Tech</title>
+<style>
+  :root {
+    --gold: #ffcd00;
+    --ink: #f6f3ea;
+    --muted: #c8c2b4;
+    --black: #0c0c0c;
+    --card: rgba(18, 18, 18, 0.78);
+    --line: rgba(255, 205, 0, 0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font: 16px/1.5 "Segoe UI", "Avenir Next", sans-serif;
+    background: #070707;
+    overflow: hidden;
+  }
+  .site { position: relative; min-height: 100dvh; }
+  .nav {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 22px;
+    background: rgba(0, 0, 0, 0.72);
+    border-bottom: 3px solid var(--gold);
+  }
+  .wordmark {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+  .topics { display: flex; flex-wrap: wrap; gap: 6px; }
+  .topics button {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 8px;
+    cursor: pointer;
+  }
+  .topics button[aria-pressed="true"] { color: var(--gold); }
+  .marquee {
+    position: absolute;
+    inset: 64px 0 0;
+    overflow: hidden;
+    z-index: 0;
+  }
+  .track {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    overflow: hidden;
+  }
+  .track:nth-child(1) { top: 6%; }
+  .track:nth-child(2) { top: 38%; }
+  .track:nth-child(3) { top: 68%; }
+  .belt {
+    display: flex;
+    gap: 14px;
+    width: max-content;
+    animation: drift linear infinite;
+  }
+  .track.reverse .belt { animation-direction: reverse; }
+  @keyframes drift {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+  .event {
+    width: 280px;
+    flex: none;
+    text-align: left;
+    border: 1px solid rgba(255, 205, 0, 0.28);
+    background: rgba(12, 12, 12, 0.72);
+    color: var(--ink);
+    border-radius: 16px;
+    padding: 14px 16px;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+  }
+  .event strong {
+    display: block;
+    font-size: 15px;
+    line-height: 1.3;
+    margin-bottom: 6px;
+  }
+  .event .when, .event .place {
+    display: block;
+    color: var(--gold);
+    font-size: 12.5px;
+  }
+  .event .place { color: var(--muted); margin-top: 2px; }
+  .veil {
+    position: absolute;
+    inset: 64px 0 0;
+    z-index: 1;
+    pointer-events: none;
+    background:
+      radial-gradient(620px 320px at 50% 42%, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.72) 70%),
+      linear-gradient(to bottom, rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.45));
+  }
+  .finder {
+    position: relative;
+    z-index: 2;
+    min-height: calc(100dvh - 64px);
+    display: grid;
+    place-items: center;
+    padding: 24px 16px 80px;
+  }
+  .finder-card {
+    width: min(680px, 100%);
+    text-align: center;
+    padding: 28px 18px 22px;
+    border-radius: 28px;
+    background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.55) 58%, transparent 78%);
+  }
+  .eyebrow {
+    margin: 0 0 8px;
+    color: var(--gold);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 0 0 18px;
+    font-family: Georgia, "Iowan Old Style", serif;
+    font-size: clamp(32px, 5vw, 52px);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+  }
+  #find-form {
+    display: flex;
+    gap: 8px;
+    background: #fff;
+    border-radius: 999px;
+    padding: 6px 6px 6px 18px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  }
+  #find {
+    flex: 1;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: #161616;
+    font: inherit;
+    font-size: 16px;
+    min-width: 0;
+  }
+  #find::placeholder { color: #7a756c; }
+  #find-form button {
+    border: 0;
+    background: var(--gold);
+    color: #161616;
+    font: inherit;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 12px 18px;
+    cursor: pointer;
+  }
+  .hint { margin: 12px 0 0; color: var(--muted); font-size: 13px; }
+  .panel[hidden] { display: none; }
+  .panel {
+    position: fixed;
+    z-index: 5;
+    right: 18px;
+    bottom: 18px;
+    width: min(420px, calc(100vw - 24px));
+    height: min(640px, calc(100dvh - 36px));
+    display: flex;
+    flex-direction: column;
+    background: #141414;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+    transform: translateY(18px) scale(0.98);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .panel.open {
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+    transition: transform 0.22s ease, opacity 0.22s ease;
+  }
+  .panel-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 12px 8px 16px;
+    background: #101010;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .who-title { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+  .mark {
+    width: 28px; height: 28px; border-radius: 8px;
+    display: grid; place-items: center;
+    background: var(--gold); color: #161616;
+    font-size: 11px; font-weight: 800;
+  }
+  .panel-bar button.close {
+    border: 0; background: transparent; color: var(--muted);
+    font: inherit; font-size: 20px; cursor: pointer; padding: 4px 8px;
+  }
+  #log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .msg { max-width: 92%; }
+  .msg.user { align-self: flex-end; }
+  .msg.bot { align-self: flex-start; }
+  .msg .body {
+    border-radius: 16px;
+    padding: 10px 12px;
+    white-space: normal;
+  }
+  .msg.user .body { background: var(--gold); color: #161616; }
+  .msg.bot .body { background: #232323; }
+  .msg .body p { margin: 0 0 8px; }
+  .msg .body p:last-child { margin-bottom: 0; }
+  .msg .body ul, .msg .body ol { margin: 6px 0; padding-left: 18px; }
+  .src { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .src a {
+    color: var(--gold);
+    font-size: 12px;
+    text-decoration: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px 8px;
+  }
+  .dots { display: inline-flex; gap: 4px; }
+  .dots i {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--gold);
+    animation: blink 1s infinite;
+  }
+  .dots i:nth-child(2) { animation-delay: 0.15s; }
+  .dots i:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  #f { padding: 10px; background: #101010; }
+  .composer { display: flex; gap: 8px; align-items: flex-end; }
+  #q {
+    flex: 1;
+    resize: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: #1c1c1c;
+    color: var(--ink);
+    border-radius: 14px;
+    padding: 10px 12px;
+    font: inherit;
+    max-height: 120px;
+  }
+  .send {
+    width: 42px; height: 42px; border: 0; border-radius: 50%;
+    background: var(--gold); color: #161616; cursor: pointer;
+  }
+  .send:disabled { opacity: 0.5; cursor: default; }
+  .send svg { width: 18px; height: 18px; }
+  @media (max-width: 720px) {
+    .nav { align-items: flex-start; flex-direction: column; }
+    .panel { left: 10px; right: 10px; width: auto; height: min(74dvh, 680px); }
+    #find-form { padding-left: 14px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .belt { animation: none; flex-wrap: wrap; width: auto; }
+    .track { position: static; overflow: visible; }
+    .marquee { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="site">
+  <header class="nav">
+    <p class="wordmark">Michigan Technological University</p>
+    <div class="topics" role="group" aria-label="Topic">
+      <button type="button" data-cat="" aria-pressed="true">All</button>
+      <button type="button" data-cat="news">News</button>
+      <button type="button" data-cat="events">Events</button>
+      <button type="button" data-cat="library">Library</button>
+      <button type="button" data-cat="tutoring">Tutoring</button>
+      <button type="button" data-cat="registration">Registration</button>
+      <button type="button" data-cat="housing">Housing</button>
+      <button type="button" data-cat="career">Career</button>
+      <button type="button" data-cat="campus">Campus</button>
+    </div>
+  </header>
+  <div class="marquee" id="marquee"></div>
+  <div class="veil"></div>
+  <div class="finder">
+    <div class="finder-card">
+      <p class="eyebrow">Campus</p>
+      <h1>What do you want to know?</h1>
+      <form id="find-form" role="search">
+        <label class="sr" for="find" style="position:absolute;left:-999px">Search campus</label>
+        <input id="find" name="q" placeholder="Hours, housing, tutoring, careers…" maxlength="2000" autocomplete="off" required>
+        <button type="submit">Search</button>
+      </form>
+      <p class="hint">Search opens the campus assistant.</p>
+    </div>
+  </div>
+</div>
+<section class="panel" id="panel" role="dialog" aria-label="Campus assistant" hidden>
+  <div class="panel-bar">
+    <div class="who-title"><span class="mark">MT</span><span>Campus assistant</span></div>
+    <button class="close" type="button" id="close" aria-label="Close">×</button>
+  </div>
+  <div id="log"></div>
+  <form id="f">
+    <div class="composer">
+      <textarea id="q" rows="1" placeholder="Ask a follow-up…" maxlength="2000"></textarea>
+      <button class="send" id="go" type="submit" aria-label="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </form>
+</section>
+<script>
+const log = document.getElementById('log');
+const q = document.getElementById('q');
+const go = document.getElementById('go');
+const find = document.getElementById('find');
+const panel = document.getElementById('panel');
+const history = [];
+let category = null;
+
+function openChat() {
+  panel.hidden = false;
+  requestAnimationFrame(() => panel.classList.add('open'));
+}
+document.getElementById('close').addEventListener('click', () => {
+  panel.classList.remove('open');
+  panel.hidden = true;
+  find.focus();
+});
+
+document.querySelectorAll('.topics button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    category = btn.dataset.cat || null;
+    document.querySelectorAll('.topics button').forEach(b => {
+      b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+    });
+    find.focus();
+  });
+});
+
+function autogrow() {
+  q.style.height = 'auto';
+  q.style.height = Math.min(q.scrollHeight, 120) + 'px';
+}
+q.addEventListener('input', autogrow);
+function nearBottom() {
+  return log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+}
+function follow() { log.scrollTop = log.scrollHeight; }
+
+function renderMarkdown(raw) {
+  const esc = raw.replace(/\[(\d+)\]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const inline = (s) => s
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  let html = '';
+  let list = null;
+  const close = () => { if (list) { html += list === 'ol' ? '</ol>' : '</ul>'; list = null; } };
+  for (const line of esc.split('\n')) {
+    const ol = line.match(/^\s*\d+\.\s+(.*)/);
+    const ul = line.match(/^\s*[-*]\s+(.*)/);
+    if (ol || ul) {
+      const type = ol ? 'ol' : 'ul';
+      if (list !== type) { close(); html += type === 'ol' ? '<ol>' : '<ul>'; list = type; }
+      html += '<li>' + inline((ol || ul)[1]) + '</li>';
+      continue;
+    }
+    close();
+    if (!line.trim()) continue;
+    html += '<p>' + inline(line) + '</p>';
+  }
+  close();
+  return html || '<p></p>';
+}
+
+function addUser(text) {
+  const d = document.createElement('div');
+  d.className = 'msg user';
+  const body = document.createElement('div');
+  body.className = 'body';
+  body.textContent = text;
+  d.appendChild(body);
+  log.appendChild(d);
+  follow();
+}
+function addBot() {
+  const d = document.createElement('div');
+  d.className = 'msg bot';
+  const body = document.createElement('div');
+  body.className = 'body';
+  body.innerHTML = '<span class="dots" aria-label="Writing"><i></i><i></i><i></i></span>';
+  const src = document.createElement('div');
+  src.className = 'src';
+  d.append(body, src);
+  log.appendChild(d);
+  follow();
+  return { body, src };
+}
+
+async function readEvents(res, onEvent) {
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let cut;
+    while ((cut = buf.indexOf('\n\n')) >= 0) {
+      const block = buf.slice(0, cut);
+      buf = buf.slice(cut + 2);
+      const data = block.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('');
+      if (data) onEvent(JSON.parse(data));
+    }
+  }
+}
+
+async function ask(message) {
+  if (!message || go.disabled) return;
+  openChat();
+  const prior = history.slice(-6);
+  go.disabled = true;
+  addUser(message);
+  const bot = addBot();
+  let answer = '';
+  let failed = false;
+  let stick = true;
+  try {
+    const r = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, category, history: prior }),
+    });
+    if (!r.ok || !r.body) throw new Error('request failed');
+    await readEvents(r, evt => {
+      stick = nearBottom();
+      if (evt.type === 'token') {
+        answer += evt.text;
+        bot.body.innerHTML = renderMarkdown(answer);
+      } else if (evt.type === 'error') {
+        failed = true;
+        const note = document.createElement('p');
+        note.textContent = evt.text;
+        if (!answer) bot.body.replaceChildren(note);
+        else bot.body.appendChild(note);
+      } else if (evt.type === 'sources' && evt.sources?.length) {
+        evt.sources.forEach(x => {
+          const a = document.createElement('a');
+          a.href = x.url;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.textContent = x.title || x.url;
+          bot.src.appendChild(a);
+        });
+      }
+      if (stick) follow();
+    });
+    if (!answer && !failed) bot.body.textContent = 'I didn’t get an answer back. Please try again.';
+    if (answer && !failed) {
+      history.push({ role: 'user', content: message });
+      history.push({ role: 'assistant', content: answer.slice(0, 1500) });
+    }
+  } catch (err) {
+    bot.body.textContent = 'Something went wrong. Please try again.';
+  }
+  go.disabled = false;
+  q.focus();
+}
+
+document.getElementById('find-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const message = find.value.trim();
+  if (!message || go.disabled) return;
+  find.value = '';
+  ask(message);
+});
+document.getElementById('f').addEventListener('submit', e => {
+  e.preventDefault();
+  const message = q.value.trim();
+  if (!message) return;
+  q.value = '';
+  autogrow();
+  ask(message);
+});
+q.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    document.getElementById('f').requestSubmit();
+  }
+});
+
+function card(item, decorative) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'event';
+  if (decorative) btn.tabIndex = -1;
+  const title = document.createElement('strong');
+  title.textContent = item.title;
+  const when = document.createElement('span');
+  when.className = 'when';
+  when.textContent = item.when || '';
+  const place = document.createElement('span');
+  place.className = 'place';
+  place.textContent = item.place || '';
+  btn.append(title, when, place);
+  btn.addEventListener('click', () => ask(item.title));
+  return btn;
+}
+
+function paint(items) {
+  const marquee = document.getElementById('marquee');
+  marquee.replaceChildren();
+  const rows = [[], [], []];
+  items.forEach((item, i) => rows[i % rows.length].push(item));
+  rows.forEach((row, index) => {
+    if (!row.length) return;
+    const track = document.createElement('div');
+    track.className = 'track' + (index === 1 ? ' reverse' : '');
+    const belt = document.createElement('div');
+    belt.className = 'belt';
+    belt.style.animationDuration = (64 + index * 16) + 's';
+    row.forEach(item => belt.appendChild(card(item, false)));
+    row.forEach(item => belt.appendChild(card(item, true)));
+    track.appendChild(belt);
+    marquee.appendChild(track);
+  });
+}
+
+fetch('/highlights').then(r => r.json()).then(items => {
+  if (Array.isArray(items) && items.length) paint(items);
+}).catch(() => {});
+find.focus();
+</script>
+</body>
+</html>
