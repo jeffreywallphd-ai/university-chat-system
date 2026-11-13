@@ -15,7 +15,8 @@
    - Back-end: Database  
        - MongoDB
        -  Python
-
+3. When you are directed to change product file—and not files used for Cline (./cline/*)—ONLY modify files placed within the root's "src" folder. This directory will contain all that is needed to launch the application.
+4. When you are directed to change files in ./cline, YOU MAY ONLY MODIFY FILES NOT WITHIN .cline/rules/*. Do not modify ALWAYS.md, as it is a persistent rule-set across various academic projects.
 
 ## DATA ACCESS RULEs
 1. Do not modify and do not rename any of the flat storage files. These files may contain sensitive data, which would violate FERPA and destroy the viability of the project.

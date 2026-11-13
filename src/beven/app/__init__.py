@@ -1,0 +1,1 @@
+"""NovusPal API package."""

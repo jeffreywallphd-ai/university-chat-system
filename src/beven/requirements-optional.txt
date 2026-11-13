@@ -1,0 +1,4 @@
+# Postgres + pgvector backend (VECTOR_BACKEND=pgvector)
+psycopg[binary]>=3.2
+pgvector>=0.3
+playwright>=1.47  # for JavaScript-rendered pages
